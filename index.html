@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>부산 무더위 쉼터 사각지대 분석</title>
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
+<style>
+body{font-family:sans-serif;max-width:1100px;margin:auto;padding:12px}
+.ctl{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;background:#f4f4f4;padding:10px;border-radius:8px}
+table{border-collapse:collapse;width:100%;margin-top:10px}td,th{border:1px solid #ddd;padding:4px;text-align:center}th{background:#eee}
+img{max-width:100%}
+</style></head><body>
+<h2>부산 무더위 쉼터 사각지대 분석</h2>
+<p>폭염 위험 · 고령 인구 · 쉼터 공급을 합쳐 구별 증설 우선순위를 계산합니다. 슬라이더를 움직이면 즉시 다시 계산됩니다.</p>
+<div id="status">Python(Pyodide) 로딩 중... 처음에는 10~30초 걸립니다.</div>
+<div class="ctl">
+ <label>폭염 기준 기온: <b id="Tv">33</b>℃<br><input id="T" type="range" min="28" max="37" value="33"></label>
+ <label>폭염 가중치: <b id="hv">40</b><br><input id="h" type="range" min="0" max="100" value="40"></label>
+ <label>고령 인구 가중치: <b id="pv">30</b><br><input id="p" type="range" min="0" max="100" value="30"></label>
+ <label>쉼터 부족 가중치: <b id="gv">30</b><br><input id="g" type="range" min="0" max="100" value="30"></label>
+</div>
+<img id="plot"><div id="tbl"></div>
+<p style="font-size:12px;color:#666">자료: 부산 무더위 쉼터(2025-11-19), 연령별 인구(2026-10), 기상청 AWS 시간자료(2026-06~09). 60세 이상 기준, 관측소가 없는 구는 인접 관측소 값으로 대체.</p>
+<script>
+let py;
+async function main(){
+ py=await loadPyodide();
+ await py.loadPackage(["pandas","numpy","matplotlib"]);
+ for(const f of ["district_summary.csv","shelters.csv","temp_hist.csv","NanumGothic.ttf"]){
+  const b=await (await fetch("data/"+f)).arrayBuffer();
+  py.FS.writeFile(f,new Uint8Array(b));
+ }
+ py.runPython(await (await fetch("app.py")).text());
+ ["T","h","p","g"].forEach(i=>document.getElementById(i).oninput=render);
+ document.getElementById("status").textContent="";
+ render();
+}
+let busy=false,again=false;
+function render(){
+ if(busy){again=true;return}
+ busy=true;
+ const v=i=>Number(document.getElementById(i).value);
+ ["T","h","p","g"].forEach(i=>document.getElementById(i+"v").textContent=v(i));
+ setTimeout(()=>{
+  const a=[v("T"),Math.max(v("h"),0.01),Math.max(v("p"),0.01),Math.max(v("g"),0.01)];
+  document.getElementById("plot").src="data:image/png;base64,"+py.globals.get("make_plot")(...a);
+  document.getElementById("tbl").innerHTML=py.globals.get("make_table")(...a);
+  busy=false;if(again){again=false;render()}
+ },10);
+}
+main();
+</script></body></html>
