@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>부산 폭염 취약지역 분석 · 무더위 쉼터 설치 우선지역</title>
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
+<style>
+:root{--r:#d62728;--bg:#f5f6f8;--ink:#1f2933}
+*{box-sizing:border-box}body{margin:0;font-family:"Noto Sans KR","Malgun Gothic",sans-serif;background:var(--bg);color:var(--ink)}
+header{background:linear-gradient(135deg,#b3261e,#f2784b);color:#fff;padding:36px 20px}
+header h1{margin:0 0 8px;font-size:28px}header p{margin:0;opacity:.92}
+main{max-width:1180px;margin:0 auto;padding:20px}
+.card{background:#fff;border-radius:14px;padding:20px;margin-bottom:20px;box-shadow:0 2px 8px #0001}
+.card h2{margin-top:0;font-size:20px}.note{font-size:13px;color:#616e7c;line-height:1.6}
+img{max-width:100%;height:auto;display:block;margin:auto}
+#status{position:fixed;inset:0;background:#fffe;display:flex;align-items:center;justify-content:center;flex-direction:column;z-index:9;font-size:18px}
+.bar{width:260px;height:6px;background:#ddd;border-radius:3px;margin-top:14px;overflow:hidden}.bar i{display:block;height:100%;width:30%;background:var(--r);animation:m 1.2s infinite}
+@keyframes m{0%{margin-left:-30%}100%{margin-left:100%}}
+.sl{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px}.sl label{font-weight:600;font-size:14px}.sl input{width:100%}
+.top{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0}
+.chip{background:#fdecea;border:1px solid #f5b5ae;border-radius:12px;padding:10px 14px}.chip b{color:var(--r);font-size:18px}
+table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:7px 6px;text-align:right;border-bottom:1px solid #eee}
+th{background:#fafafa;position:sticky;top:0}td:nth-child(-n+2),th:nth-child(-n+2){text-align:center}
+tr.hl td{background:#fff3f1;font-weight:600}
+button{background:var(--r);color:#fff;border:0;border-radius:8px;padding:10px 18px;font-size:14px;cursor:pointer}
+#drop{display:block;border:2px dashed #e0877d;border-radius:12px;padding:28px;text-align:center;cursor:pointer;background:#fff7f6}#drop.on{background:#fde3df}footer{text-align:center;font-size:12px;color:#888;padding:20px}
+</style></head><body>
+<div id="status" style="display:flex"><div id="stmsg">Python(Pyodide) 환경 로딩 중…</div><div class="bar"><i></i></div></div>
+<header><h1>🌡️ 부산 폭염 취약지역 분석 & 무더위 쉼터 설치 우선지역</h1>
+<p>부산광역시 무더위 쉼터 위치 · 연령별 인구 · 기상관측(AWS) 기온 데이터를 Python(Pandas·Matplotlib, Pyodide)으로 브라우저에서 직접 분석합니다.</p></header>
+<main>
+<section class="card" id="upl"><h2>📂 CSV 파일 3개 올리기</h2>
+<p class="note">① 연령별 인구현황(행정구역·연령구간 컬럼) ② 부산광역시 무더위 쉼터(쉼터명·상세주소·x/y좌표) ③ 시간별 기온(지점명·일시·기온) CSV를 <b>한 번에 선택</b>하거나 아래로 끌어다 놓으세요. 파일 종류는 컬럼으로 자동 인식하며, 인코딩(UTF-8/CP949)도 자동 판별합니다.</p>
+<label id="drop"><input type="file" id="files" accept=".csv" multiple hidden><div>⬆️ 클릭하거나 CSV 3개를 여기에 끌어놓기</div></label>
+<div id="flist" class="note"></div><div id="err" style="color:#b3261e;font-weight:600"></div></section>
+<div id="result" style="display:none">
+<section class="card"><h2>🎯 설치 우선 지역 (상위 5곳)</h2><div class="top" id="top5"></div>
+<p class="note">우선순위 점수 = 폭염 취약도 40% + 취약인구 30% + 쉼터 부족도 30% (각 지표 0~100 정규화)</p>
+</section>
+<section class="card"><h2>① 폭염 취약 지역</h2><img id="i_heat"><p class="note">폭염일수=일 최고기온 33℃ 이상, 열대야=일 최저기온 25℃ 이상(업로드한 시간별 관측값 기준). 폭염 취약도 = 폭염일수·열대야일수·평균 일최고기온을 각각 0~100으로 정규화한 평균.</p></section>
+<section class="card"><h2>② 폭염에 취약한 인구층</h2><img id="i_pop"><p class="note">폭염 취약 인구는 연령 구간 자료(10세 단위) 한계상 <b>70세 이상 고령층 + 0~9세 영유아·어린이</b>로 정의했습니다. (65세 이상은 구간 분리가 불가능해 60대는 제외)</p></section>
+<section class="card"><h2>③ 무더위 쉼터 현황 · 설치 우선 지역</h2><img id="i_map"></section>
+<section class="card"><h2>④ 종합 우선순위</h2><img id="i_rank">
+<div style="overflow-x:auto;margin-top:14px"><table id="tb"><thead><tr><th>순위</th><th>자치구</th><th>종합점수</th><th>폭염취약도</th><th>취약인구지수</th><th>쉼터부족도</th><th>폭염일수</th><th>열대야</th><th>취약인구(명)</th><th>취약비율(%)</th><th>쉼터(곳)</th><th>1만명당 쉼터</th><th>기온 관측소</th></tr></thead><tbody></tbody></table></div></section>
+<section class="card"><h2>📌 분석 방법 및 한계</h2><ul class="note">
+<li>업로드한 인구(가장 최근 월 기준)·쉼터·시간별 기온 CSV를 브라우저 안에서만 처리하며 서버로 전송하지 않습니다.</li>
+<li>기상관측소가 없는 구는 인접 관측소 값으로 대체: 서구→영도, 동구→부산진, 연제구→동래, 수영구→부산남구, 강서구→가덕도. 중구는 '부산(레이더)' 지점(고지대)이라 실제보다 기온이 낮게 나올 수 있습니다.</li>
+<li>쉼터 부족도 = 취약인구 1만 명당 쉼터 수가 적을수록 높음. 쉼터 면적·수용인원·운영시간은 데이터에 없어 개소 수만 반영했습니다.</li>
+<li>쉼터 위치는 위·경도 좌표를 이용해 산점도로 표시했으며 행정경계선은 포함하지 않습니다.</li></ul></section>
+</div></main><footer>공공데이터 분석을 통한 해결방안 마련 · Python + Pyodide + Matplotlib</footer>
+<script>
+</script>
+<script type="text/plain" id="pycode">import io, json, base64
+import numpy as np, pandas as pd
+import matplotlib
+matplotlib.use("AGG")
+import matplotlib.pyplot as plt
+from matplotlib import font_manager as fm
+
+# ---- 업로드된 원본 CSV 3개를 읽어 분석용 표로 변환 ----
+import re
+def _read(b):
+    b = bytes(b)
+    for enc in ("utf-8-sig", "cp949", "euc-kr"):
+        try: return pd.read_csv(io.StringIO(b.decode(enc)), dtype=str)
+        except Exception: pass
+    raise ValueError("CSV 인코딩을 읽을 수 없습니다")
+def _num(s): return pd.to_numeric(s.astype(str).str.replace(",", "").str.strip(), errors="coerce")
+
+def prepare(blobs):
+    global pop, shel, temp
+    found = {}
+    for b in blobs:
+        df = _read(b); cols = " ".join(df.columns)
+        if "쉼터명" in cols: found["shelter"] = df
+        elif "기온" in cols and "일시" in cols: found["temp"] = df
+        elif "행정구역" in cols: found["pop"] = df
+    miss = [n for k, n in [("pop","연령별 인구현황"),("shelter","무더위 쉼터"),("temp","시간별 기온")] if k not in found]
+    if miss: raise ValueError("인식하지 못한 파일: " + ", ".join(miss) + " — CSV 3개를 모두 선택했는지 확인하세요")
+    # 인구: 가장 최근 월의 '계' 컬럼 사용
+    p = found["pop"]
+    months = sorted({m.group(1) for c in p.columns for m in [re.match(r"(\d{4}년\d{2}월)_계_", c)] if m})
+    mon = months[-1]
+    d = p["행정구역"].str.extract(r"부산광역시\s+(\S+[구군])")[0]
+    p = p[d.notna()].copy(); p["district"] = d[d.notna()]
+    o = pd.DataFrame({"district": p["district"].values})
+    o["total"] = _num(p[f"{mon}_계_총인구수"]).values
+    for a in AGES: o[a] = _num(p[f"{mon}_계_{a}"]).values
+    pop = o.reset_index(drop=True)
+    # 쉼터
+    s = found["shelter"].copy()
+    s["district"] = s["상세주소"].str.extract(r"부산광역시\s+(\S+[구군])")[0]
+    s["x"] = _num(s["x좌표"]); s["y"] = _num(s["y좌표"])
+    s = s.dropna(subset=["district","x","y"])
+    shel = s[s.x.between(128.5, 129.5) & s.y.between(34.8, 35.5)][["district","x","y"]].reset_index(drop=True)
+    # 기온 → 일별 최고/최저
+    t = found["temp"].copy(); tc = [c for c in t.columns if "기온" in c][0]
+    t["temp"] = _num(t[tc]); t["date"] = t["일시"].str[:10]
+    g = t.groupby(["지점명","date"]).temp.agg(["max","min"]).reset_index()
+    g.columns = ["station","date","tmax","tmin"]
+    temp = g
+    return f"{mon} 인구 · 쉼터 {len(shel)}곳 · 기온 {t['지점명'].nunique()}개 지점 ({t['date'].min()}~{t['date'].max()})"
+
+# 기상관측소 → 자치구 매칭 (관측소가 없는 구는 인접 관측소로 대체)
+STATION = {"중구":"부산(레)","서구":"영도","동구":"부산진","영도구":"영도","부산진구":"부산진","동래구":"동래",
+ "남구":"부산남구","북구":"북구","해운대구":"해운대","사하구":"사하","금정구":"금정구","강서구":"가덕도",
+ "연제구":"동래","수영구":"부산남구","사상구":"사상","기장군":"기장"}
+AGES = ["0~9세","10~19세","20~29세","30~39세","40~49세","50~59세","60~69세","70~79세","80~89세","90~99세","100세 이상"]
+COLORS = ["#4C78A8","#72B7B2","#9ECAE9","#B6D7A8","#E5C494","#F2B866","#F58518","#E45756","#B8312F","#7B1E1E","#4A0F0F"]
+
+def minmax(s):
+    s = pd.Series(s, dtype=float)
+    return (s - s.min()) / (s.max() - s.min()) if s.max() > s.min() else s * 0
+
+def stats():
+    t = temp.copy()
+    g = t.groupby("station").agg(heat_days=("tmax", lambda x: int((x >= 33).sum())),
+                                 tropical=("tmin", lambda x: int((x >= 25).sum())),
+                                 avg_tmax=("tmax", "mean"), peak=("tmax", "max")).reset_index()
+    d = pop[["district","total"]].copy()
+    d["station"] = d["district"].map(STATION)
+    d = d.merge(g, on="station", how="left")
+    for c in ["heat_days","tropical","avg_tmax","peak"]: d[c] = d[c].fillna(d[c].mean())
+    d["elder"] = pop["70~79세"] + pop["80~89세"] + pop["90~99세"] + pop["100세 이상"]
+    d["child"] = pop["0~9세"]
+    d["vuln"] = d["elder"] + d["child"]
+    d["vuln_ratio"] = d["vuln"] / d["total"] * 100
+    d["elder_ratio"] = d["elder"] / d["total"] * 100
+    sc = shel.groupby("district").size().rename("shelters")
+    d = d.merge(sc, left_on="district", right_index=True, how="left").fillna({"shelters":0})
+    d["per10k"] = d["shelters"] / d["vuln"] * 10000
+    d["heat_idx"] = (minmax(d["heat_days"]) + minmax(d["tropical"]) + minmax(d["avg_tmax"])) / 3 * 100
+    d["pop_idx"] = (minmax(d["vuln_ratio"]) + minmax(d["vuln"])) / 2 * 100
+    d["gap_idx"] = (1 - minmax(d["per10k"])) * 100
+    return d
+
+def fig_png(fig):
+    b = io.BytesIO(); fig.savefig(b, format="png", dpi=110, bbox_inches="tight"); plt.close(fig)
+    return base64.b64encode(b.getvalue()).decode()
+
+def run(wh=40, wv=30, ws=30):
+    tot = wh + wv + ws or 1
+    wh, wv, ws = wh/tot, wv/tot, ws/tot
+    d = stats()
+    d["score"] = wh*d["heat_idx"] + wv*d["pop_idx"] + ws*d["gap_idx"]
+    d = d.sort_values("score", ascending=False).reset_index(drop=True)
+    d["rank"] = d.index + 1
+    top = set(d.head(5)["district"])
+    out = {}
+
+    # 1) 폭염 취약 지역
+    h = d.sort_values("heat_idx")
+    fig, ax = plt.subplots(1, 2, figsize=(13, 6))
+    cols = ["#D62728" if x in top else "#F2A65A" for x in h["district"]]
+    ax[0].barh(h["district"], h["heat_idx"], color=cols)
+    for i, v in enumerate(h["heat_idx"]): ax[0].text(v + 1, i, f"{v:.0f}", va="center", fontsize=9)
+    ax[0].set_title("구별 폭염 취약 지수 (0~100)"); ax[0].set_xlim(0, 112)
+    y = np.arange(len(h)); ax[1].barh(y - 0.2, h["heat_days"], 0.4, label="폭염일수 (일 최고 33℃↑)", color="#E45756")
+    ax[1].barh(y + 0.2, h["tropical"], 0.4, label="열대야일수 (일 최저 25℃↑)", color="#4C78A8")
+    ax[1].set_yticks(y); ax[1].set_yticklabels(h["district"]); ax[1].legend(loc="lower right"); ax[1].set_title("업로드 기간 폭염·열대야 일수")
+    fig.suptitle("① 폭염 취약 지역  (빨강 = 종합 우선순위 상위 5곳)", fontsize=14, fontweight="bold"); fig.tight_layout()
+    out["heat"] = fig_png(fig)
+
+    # 2) 폭염 취약 인구층
+    p = pop.set_index("district").loc[d["district"]]
+    fig, ax = plt.subplots(1, 3, figsize=(17, 6), gridspec_kw={"width_ratios":[1.1, 1.5, 1.3]})
+    cw = p[AGES].sum()
+    ax[0].bar(range(len(AGES)), cw / 1000, color=COLORS)
+    ax[0].set_xticks(range(len(AGES))); ax[0].set_xticklabels([a.replace("세","") for a in AGES], rotation=45, ha="right")
+    ax[0].set_ylabel("천 명"); ax[0].set_title("부산 전체 연령별 인구")
+    ax[0].axvspan(6.5, 10.5, color="#E45756", alpha=.12); ax[0].axvspan(-.5, .5, color="#E45756", alpha=.12)
+    ax[0].text(8.5, ax[0].get_ylim()[1]*.9, "70세↑", ha="center", color="#B8312F"); ax[0].text(0, ax[0].get_ylim()[1]*.9, "0~9", ha="center", color="#B8312F")
+    r = (p[AGES].div(p[AGES].sum(axis=1), axis=0) * 100).iloc[::-1]
+    left = np.zeros(len(r))
+    for a, c in zip(AGES, COLORS):
+        ax[1].barh(r.index, r[a], left=left, color=c, label=a); left += r[a].values
+    ax[1].set_xlim(0, 100); ax[1].set_title("구별 연령 구성 비율 (%) · 위쪽일수록 우선순위 높음")
+    ax[1].legend(ncol=6, fontsize=7, loc="upper center", bbox_to_anchor=(.5, -.06))
+    v = d.iloc[::-1]
+    ax[2].barh(v["district"], v["elder"] / 1000, color="#E45756", label="70세 이상")
+    ax[2].barh(v["district"], v["child"] / 1000, left=v["elder"] / 1000, color="#4C78A8", label="0~9세")
+    for i, (a, b) in enumerate(zip(v["vuln"], v["vuln_ratio"])): ax[2].text(a/1000 + .5, i, f"{b:.1f}%", va="center", fontsize=8)
+    ax[2].set_xlabel("천 명 (막대 옆: 구 인구 대비 비율)"); ax[2].legend(loc="lower right"); ax[2].set_title("폭염 취약 인구 (고령층+영유아)")
+    fig.suptitle("② 폭염에 취약한 인구층 ", fontsize=14, fontweight="bold"); fig.tight_layout()
+    out["pop"] = fig_png(fig)
+
+    # 3) 쉼터 현황 + 지도
+    fig, ax = plt.subplots(1, 2, figsize=(15, 6.5), gridspec_kw={"width_ratios":[1, 1.15]})
+    s = d.sort_values("per10k")
+    ax[0].barh(s["district"], s["per10k"], color=["#D62728" if x in top else "#7F7F7F" for x in s["district"]])
+    for i, (v_, n) in enumerate(zip(s["per10k"], s["shelters"])): ax[0].text(v_ + .3, i, f"{v_:.1f} ({int(n)}곳)", va="center", fontsize=8)
+    ax[0].set_title("취약인구 1만 명당 무더위 쉼터 수"); ax[0].set_xlim(0, s["per10k"].max() * 1.25)
+    m = shel.merge(d[["district","score"]], on="district", how="left")
+    ist = m["district"].isin(top)
+    ax[1].scatter(m.x[~ist], m.y[~ist], s=7, c="#9AA5B1", alpha=.7, label="쉼터")
+    ax[1].scatter(m.x[ist], m.y[ist], s=9, c="#F28E2B", alpha=.9, label="우선순위 상위 5개 구의 쉼터")
+    cen = shel.groupby("district")[["x","y"]].median()
+    for rk, row in d.iterrows():
+        if row["district"] in cen.index:
+            x_, y_ = cen.loc[row["district"]]
+            hot = row["district"] in top
+            ax[1].annotate(f'{row["rank"]}. {row["district"]}' if hot else row["district"], (x_, y_), fontsize=10 if hot else 7.5,
+                           fontweight="bold" if hot else "normal", color="white" if hot else "#333",
+                           ha="center", bbox=dict(boxstyle="round,pad=.25", fc="#D62728" if hot else "white", ec="none", alpha=.9 if hot else .6))
+    ax[1].set_aspect(1/np.cos(np.radians(35.18))); ax[1].set_xlabel("경도"); ax[1].set_ylabel("위도"); ax[1].legend(loc="lower left")
+    ax[1].set_title("쉼터 위치 분포 · 설치 우선 지역(빨간 라벨)")
+    fig.suptitle("③ 무더위 쉼터 현황과 설치 우선 지역", fontsize=14, fontweight="bold"); fig.tight_layout()
+    out["map"] = fig_png(fig)
+
+    # 4) 종합 우선순위
+    q = d.iloc[::-1]
+    fig, ax = plt.subplots(figsize=(11, 6.5))
+    a = wh*q["heat_idx"]; b = wv*q["pop_idx"]; c = ws*q["gap_idx"]
+    ax.barh(q["district"], a, color="#E45756", label=f"폭염 취약도 ×{wh:.0%}")
+    ax.barh(q["district"], b, left=a, color="#F2B866", label=f"취약인구 ×{wv:.0%}")
+    ax.barh(q["district"], c, left=a+b, color="#4C78A8", label=f"쉼터 부족도 ×{ws:.0%}")
+    for i, v_ in enumerate(q["score"]): ax.text(v_ + .8, i, f"{v_:.1f}", va="center", fontsize=9, fontweight="bold")
+    ax.set_xlim(0, q["score"].max() * 1.12); ax.set_title("④ 쉼터 설치 우선순위 점수 (높을수록 우선)", fontsize=14, fontweight="bold"); ax.legend(loc="lower right")
+    fig.tight_layout(); out["rank"] = fig_png(fig)
+
+    out["table"] = [dict(rank=int(r["rank"]), district=r["district"], score=round(r["score"],1), heat=round(r["heat_idx"],1),
+        popi=round(r["pop_idx"],1), gap=round(r["gap_idx"],1), heat_days=int(r["heat_days"]), tropical=int(r["tropical"]),
+        vuln=int(r["vuln"]), ratio=round(r["vuln_ratio"],1), shelters=int(r["shelters"]), per10k=round(r["per10k"],2), station=r["station"]) for _, r in d.iterrows()]
+    return json.dumps(out)
+</script>
+<script>
+let py,run;
+const $=id=>document.getElementById(id), msg=t=>$('stmsg').textContent=t;
+async function init(){
+  try{
+    py=await loadPyodide(); msg('Pandas · Matplotlib 설치 중…');
+    await py.loadPackage(['numpy','pandas','matplotlib']);
+    msg('한글 폰트 불러오는 중…');
+    const urls=['https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/nanumgothic/NanumGothic-Regular.ttf',
+      'https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/nanumgothic/NanumGothic-Bold.ttf'];
+    let ok=false;
+    for(const [i,u] of urls.entries()){ try{const r=await fetch(u); if(!r.ok) throw 0;
+      py.FS.writeFile('/nanum'+i+'.ttf',new Uint8Array(await r.arrayBuffer())); ok=true;}catch(e){} }
+    msg('분석 코드 준비 중…');
+    py.runPython($('pycode').textContent);
+    py.runPython(`
+from matplotlib import font_manager as fm
+import os
+for f in ['/nanum0.ttf','/nanum1.ttf']:
+    if os.path.exists(f): fm.fontManager.addfont(f)
+if os.path.exists('/nanum0.ttf'):
+    plt.rcParams['font.family']=fm.FontProperties(fname='/nanum0.ttf').get_name()
+plt.rcParams['axes.unicode_minus']=False
+`);
+    $('status').style.display='none';
+  }catch(e){msg('로딩 실패: '+e+' (인터넷 연결을 확인하세요)');console.error(e)}
+}
+async function analyze(fs){
+  $('err').textContent=''; msg('분석 중… (그래프를 그리는 데 수 초 걸립니다)'); $('status').style.display='flex';
+  await new Promise(r=>setTimeout(r,50));
+  try{
+    const bufs=[]; for(const f of fs) bufs.push(new Uint8Array(await f.arrayBuffer()));
+    py.globals.set('BLOBS',py.toPy(bufs));
+    const info=py.runPython('prepare(BLOBS)');
+    $('flist').textContent='✅ '+[...fs].map(f=>f.name).join(', ')+' → '+info;
+    const o=JSON.parse(py.runPython('run()'));
+    for(const k of ['heat','pop','map','rank']) $('i_'+k).src='data:image/png;base64,'+o[k];
+    $('top5').innerHTML=o.table.slice(0,5).map(r=>`<div class="chip"><b>${r.rank}위 ${r.district}</b><br>점수 ${r.score} · 쉼터 ${r.shelters}곳 · 1만명당 ${r.per10k}</div>`).join('');
+    $('tb').tBodies[0].innerHTML=o.table.map(r=>`<tr class="${r.rank<=5?'hl':''}"><td>${r.rank}</td><td>${r.district}</td><td>${r.score}</td><td>${r.heat}</td><td>${r.popi}</td><td>${r.gap}</td><td>${r.heat_days}</td><td>${r.tropical}</td><td>${r.vuln.toLocaleString()}</td><td>${r.ratio}</td><td>${r.shelters}</td><td>${r.per10k}</td><td>${r.station}</td></tr>`).join('');
+    $('result').style.display='block';
+  }catch(e){ $('err').textContent='⚠️ '+String(e).split('\n').filter(x=>x.trim()).pop(); console.error(e); }
+  $('status').style.display='none';
+}
+const pick=fs=>{ if(fs&&fs.length) analyze(fs); };
+$('files').onchange=e=>pick(e.target.files);
+const dz=$('drop');
+dz.ondragover=e=>{e.preventDefault();dz.classList.add('on')}; dz.ondragleave=()=>dz.classList.remove('on');
+dz.ondrop=e=>{e.preventDefault();dz.classList.remove('on');pick(e.dataTransfer.files)};
+init();
+</script></body></html>
