@@ -146,64 +146,41 @@ def run(wh=40, wv=30, ws=30):
     top = set(d.head(5)["district"])
     out = {}
 
-    # 1) 폭염 취약 지역
+    # 1) 폭염 취약 지역 (차트 1개)
     h = d.sort_values("heat_idx")
-    fig, ax = plt.subplots(1, 2, figsize=(13, 6))
-    cols = ["#D62728" if x in top else "#F2A65A" for x in h["district"]]
-    ax[0].barh(h["district"], h["heat_idx"], color=cols)
-    for i, v in enumerate(h["heat_idx"]): ax[0].text(v + 1, i, f"{v:.0f}", va="center", fontsize=9)
-    ax[0].set_title("구별 폭염 취약 지수 (0~100)"); ax[0].set_xlim(0, 112)
-    y = np.arange(len(h)); ax[1].barh(y - 0.2, h["heat_days"], 0.4, label="폭염일수 (일 최고 33℃↑)", color="#E45756")
-    ax[1].barh(y + 0.2, h["tropical"], 0.4, label="열대야일수 (일 최저 25℃↑)", color="#4C78A8")
-    ax[1].set_yticks(y); ax[1].set_yticklabels(h["district"]); ax[1].legend(loc="lower right"); ax[1].set_title("업로드 기간 폭염·열대야 일수")
-    fig.suptitle("① 폭염 취약 지역  (빨강 = 종합 우선순위 상위 5곳)", fontsize=14, fontweight="bold"); fig.tight_layout()
-    out["heat"] = fig_png(fig)
+    fig, ax = plt.subplots(figsize=(9, 6))
+    ax.barh(h["district"], h["heat_idx"], color=["#D62728" if x in top else "#F2A65A" for x in h["district"]])
+    for i, (v, hd, tr) in enumerate(zip(h["heat_idx"], h["heat_days"], h["tropical"])):
+        ax.text(v + 1, i, f"{v:.0f}  (폭염 {hd}일 · 열대야 {tr}일)", va="center", fontsize=9)
+    ax.set_xlim(0, 135); ax.set_xlabel("폭염 취약 지수 (0~100)")
+    ax.set_title("① 구별 폭염 취약 지수  (빨강 = 종합 우선순위 상위 5곳)", fontsize=13, fontweight="bold")
+    fig.tight_layout(); out["heat"] = fig_png(fig)
 
-    # 2) 폭염 취약 인구층
-    p = pop.set_index("district").loc[d["district"]]
-    fig, ax = plt.subplots(1, 3, figsize=(17, 6), gridspec_kw={"width_ratios":[1.1, 1.5, 1.3]})
-    cw = p[AGES].sum()
-    ax[0].bar(range(len(AGES)), cw / 1000, color=COLORS)
-    ax[0].set_xticks(range(len(AGES))); ax[0].set_xticklabels([a.replace("세","") for a in AGES], rotation=45, ha="right")
-    ax[0].set_ylabel("천 명"); ax[0].set_title("부산 전체 연령별 인구")
-    ax[0].axvspan(6.5, 10.5, color="#E45756", alpha=.12); ax[0].axvspan(-.5, .5, color="#E45756", alpha=.12)
-    ax[0].text(8.5, ax[0].get_ylim()[1]*.9, "70세↑", ha="center", color="#B8312F"); ax[0].text(0, ax[0].get_ylim()[1]*.9, "0~9", ha="center", color="#B8312F")
-    r = (p[AGES].div(p[AGES].sum(axis=1), axis=0) * 100).iloc[::-1]
-    left = np.zeros(len(r))
-    for a, c in zip(AGES, COLORS):
-        ax[1].barh(r.index, r[a], left=left, color=c, label=a); left += r[a].values
-    ax[1].set_xlim(0, 100); ax[1].set_title("구별 연령 구성 비율 (%) · 위쪽일수록 우선순위 높음")
-    ax[1].legend(ncol=6, fontsize=7, loc="upper center", bbox_to_anchor=(.5, -.06))
-    v = d.iloc[::-1]
-    ax[2].barh(v["district"], v["elder"] / 1000, color="#E45756", label="70세 이상")
-    ax[2].barh(v["district"], v["child"] / 1000, left=v["elder"] / 1000, color="#4C78A8", label="0~9세")
-    for i, (a, b) in enumerate(zip(v["vuln"], v["vuln_ratio"])): ax[2].text(a/1000 + .5, i, f"{b:.1f}%", va="center", fontsize=8)
-    ax[2].set_xlabel("천 명 (막대 옆: 구 인구 대비 비율)"); ax[2].legend(loc="lower right"); ax[2].set_title("폭염 취약 인구 (고령층+영유아)")
-    fig.suptitle("② 폭염에 취약한 인구층 ", fontsize=14, fontweight="bold"); fig.tight_layout()
-    out["pop"] = fig_png(fig)
+    # 2) 폭염 취약 인구층 (차트 1개)
+    v = d.sort_values("vuln")
+    fig, ax = plt.subplots(figsize=(9, 6))
+    ax.barh(v["district"], v["elder"] / 1000, color="#E45756", label="70세 이상")
+    ax.barh(v["district"], v["child"] / 1000, left=v["elder"] / 1000, color="#4C78A8", label="0~9세")
+    for i, (a_, b_) in enumerate(zip(v["vuln"], v["vuln_ratio"])): ax.text(a_/1000 + .6, i, f"{a_:,}명 ({b_:.1f}%)".replace(f"{a_}", f"{a_:,}"), va="center", fontsize=9)
+    ax.set_xlim(0, v["vuln"].max() / 1000 * 1.3); ax.set_xlabel("천 명 (괄호: 구 인구 대비 비율)"); ax.legend(loc="lower right")
+    ax.set_title("② 구별 폭염 취약 인구 (고령층 + 영유아)", fontsize=13, fontweight="bold")
+    fig.tight_layout(); out["pop"] = fig_png(fig)
 
-    # 3) 쉼터 현황 + 지도
-    fig, ax = plt.subplots(1, 2, figsize=(15, 6.5), gridspec_kw={"width_ratios":[1, 1.15]})
-    s = d.sort_values("per10k")
-    ax[0].barh(s["district"], s["per10k"], color=["#D62728" if x in top else "#7F7F7F" for x in s["district"]])
-    for i, (v_, n) in enumerate(zip(s["per10k"], s["shelters"])): ax[0].text(v_ + .3, i, f"{v_:.1f} ({int(n)}곳)", va="center", fontsize=8)
-    ax[0].set_title("취약인구 1만 명당 무더위 쉼터 수"); ax[0].set_xlim(0, s["per10k"].max() * 1.25)
-    m = shel.merge(d[["district","score"]], on="district", how="left")
-    ist = m["district"].isin(top)
-    ax[1].scatter(m.x[~ist], m.y[~ist], s=7, c="#9AA5B1", alpha=.7, label="쉼터")
-    ax[1].scatter(m.x[ist], m.y[ist], s=9, c="#F28E2B", alpha=.9, label="우선순위 상위 5개 구의 쉼터")
+    # 3) 쉼터 위치 + 우선 지역 (차트 1개)
+    fig, ax = plt.subplots(figsize=(9, 7))
+    m = shel.merge(d[["district"]], on="district", how="left"); ist = m["district"].isin(top)
+    ax.scatter(m.x[~ist], m.y[~ist], s=8, c="#9AA5B1", alpha=.7, label="쉼터")
+    ax.scatter(m.x[ist], m.y[ist], s=10, c="#F28E2B", alpha=.9, label="우선순위 상위 5개 구의 쉼터")
     cen = shel.groupby("district")[["x","y"]].median()
-    for rk, row in d.iterrows():
+    for _, row in d.iterrows():
         if row["district"] in cen.index:
-            x_, y_ = cen.loc[row["district"]]
-            hot = row["district"] in top
-            ax[1].annotate(f'{row["rank"]}. {row["district"]}' if hot else row["district"], (x_, y_), fontsize=10 if hot else 7.5,
-                           fontweight="bold" if hot else "normal", color="white" if hot else "#333",
-                           ha="center", bbox=dict(boxstyle="round,pad=.25", fc="#D62728" if hot else "white", ec="none", alpha=.9 if hot else .6))
-    ax[1].set_aspect(1/np.cos(np.radians(35.18))); ax[1].set_xlabel("경도"); ax[1].set_ylabel("위도"); ax[1].legend(loc="lower left")
-    ax[1].set_title("쉼터 위치 분포 · 설치 우선 지역(빨간 라벨)")
-    fig.suptitle("③ 무더위 쉼터 현황과 설치 우선 지역", fontsize=14, fontweight="bold"); fig.tight_layout()
-    out["map"] = fig_png(fig)
+            x_, y_ = cen.loc[row["district"]]; hot = row["district"] in top
+            ax.annotate(f'{row["rank"]}. {row["district"]}' if hot else row["district"], (x_, y_), fontsize=11 if hot else 8,
+                        fontweight="bold" if hot else "normal", color="white" if hot else "#333", ha="center",
+                        bbox=dict(boxstyle="round,pad=.25", fc="#D62728" if hot else "white", ec="none", alpha=.9 if hot else .6))
+    ax.set_aspect(1/np.cos(np.radians(35.18))); ax.set_xlabel("경도"); ax.set_ylabel("위도"); ax.legend(loc="lower left")
+    ax.set_title("③ 무더위 쉼터 위치와 설치 우선 지역 (빨간 라벨)", fontsize=13, fontweight="bold")
+    fig.tight_layout(); out["map"] = fig_png(fig)
 
     # 4) 종합 우선순위
     q = d.iloc[::-1]
